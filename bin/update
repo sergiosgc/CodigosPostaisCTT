@@ -1,0 +1,43 @@
+#!/bin/bash
+
+BASEDIR=$(realpath "$(dirname $0)/..")
+cd $BASEDIR
+
+file update/concelhos.txt | grep --silent ISO-8859 && iconv -f ISO-8859-1 -t UTF-8 update/concelhos.txt | sponge update/concelhos.txt && dos2unix update/concelhos.txt 
+file update/distritos.txt | grep --silent ISO-8859 && iconv -f ISO-8859-1 -t UTF-8 update/distritos.txt | sponge update/distritos.txt && dos2unix update/distritos.txt
+file update/todos_cp.txt | grep --silent ISO-8859 && iconv -f ISO-8859-1 -t UTF-8 update/todos_cp.txt | sed 's/"/\\"/g' | sponge update/todos_cp.txt && dos2unix update/todos_cp.txt
+
+rm -f codigos_postais.sqlite
+echo "CREATE TABLE distrito(id integer primary key, nome text)" | sqlite3 codigos_postais.sqlite
+echo "CREATE TABLE concelho(distrito integer references distrito(id), concelho integer, nome text, PRIMARY KEY (distrito, concelho))" | sqlite3 codigos_postais.sqlite
+echo "CREATE TABLE codigo_postal(distrito integer, concelho integer, codigo_localidade text, nome_localidade text, codigo_arteria text, tipo_arteria text, primeira_preposicao_arteria text, titulo_arteria text, segunda_preposicao_arteria text, designacao_arteria text, local_arteria text, troco text, porta text, nome_cliente text, cp4 text, cp3 text, cpalf text);" | sqlite3 codigos_postais.sqlite
+cat update/distritos.txt | sed 's/^\([^;]*\);\(.*\)/INSERT INTO distrito(id, nome) VALUES(\1, "\2");/' | tr '"' "'" | sqlite3 codigos_postais.sqlite
+cat update/concelhos.txt | sed 's/^\([^;]*\);\([^;]*\);\(.*\)/INSERT INTO concelho(distrito, concelho, nome) VALUES(\1, \2, "\3");/' | tr '"' "'" | sqlite3 codigos_postais.sqlite
+
+function quote {
+    echo -n "'"$(echo -n $1 | sed "s/'/''/g")"'"
+}
+
+function cp_insert {
+    echo -n "INSERT INTO codigo_postal(distrito, concelho, codigo_localidade, nome_localidade, codigo_arteria, tipo_arteria, primeira_preposicao_arteria, titulo_arteria, segunda_preposicao_arteria, designacao_arteria, local_arteria, troco, porta, nome_cliente, cp4, cp3, cpalf) VALUES("
+    echo -n "$1"; echo -n ", "
+    echo -n "$2"; echo -n ", "
+    quote "$3"; echo -n ", "
+    quote "$4"; echo -n ", "
+    quote "$5"; echo -n ", "
+    quote "$6"; echo -n ", "
+    quote "$7"; echo -n ", "
+    quote "$8"; echo -n ", "
+    quote "$9"; echo -n ", "
+    quote "$10"; echo -n ", "
+    quote "$11"; echo -n ", "
+    quote "$12"; echo -n ", "
+    quote "$13"; echo -n ", "
+    quote "$14"; echo -n ", "
+    quote "$15"; echo -n ", "
+    quote "$16"; echo -n ", "
+    quote "$17"; echo ');'
+}
+export -f cp_insert
+export -f quote
+(echo "BEGIN;"; csvtool -t \; call cp_insert update/todos_cp.txt; echo "COMMIT;") | pv | sqlite3 codigos_postais.sqlite
